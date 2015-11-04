@@ -12,21 +12,23 @@ DHT dht(DHTPIN, DHTTYPE);
   bool debug = true;
   bool red = true;
   bool green = false;
+  volatile boolean measure_flag = false;
+  volatile boolean message_flag = false;
   Domotica controller;
   char testmsg[MSG_LEN];
-  volatile float hysteresis[10];
-  volatile uint8_t counter = 0;
+  float hysteresis[10];
+  uint8_t counter = 0;
   long sent = 0;
   float currentTemperature = 20;
-  volatile float avgTemperature = 20;
+  float avgTemperature = 20;
   float currentHumidity = 40;
-  volatile bool heatingState = false;
-  volatile bool requestRunningState = false;
-  volatile bool requestTemp = false;
-  volatile bool requestHumidity = false;
-  volatile bool requestTargetTemp = false;
-  volatile uint8_t targetTemperature = 0;
-  volatile char from_address[4];
+  bool heatingState = false;
+  bool requestRunningState = false;
+  bool requestTemp = false;
+  bool requestHumidity = false;
+  bool requestTargetTemp = false;
+  uint8_t targetTemperature = 0;
+  char from_address[4];
   char serialBuffer[32];
   char response[32];
   char tempstring[50];
@@ -66,7 +68,15 @@ void setup() {
 }
 
 ISR(TIMER1_COMPA_vect) {
-  wdt_reset();
+ measure_flag = true;
+ //switch leds: heart beat
+ red = heatingState;
+ green = !green;
+ digitalWrite(A2, red);
+ digitalWrite(A1, green);
+}
+
+void measure() {
    hysteresis[counter++] = currentTemperature;
    
    if(counter == 10)
@@ -89,10 +99,10 @@ ISR(TIMER1_COMPA_vect) {
      Serial.println(avgTemperature);
      }
    
-   if(avgTemperature >= (float)targetTemperature - 0.4) {
+   if(avgTemperature >= (float)targetTemperature - 0.4 && heatingState == true) {
      digitalWrite(A0, LOW);
      heatingState = false;
-   }else if (avgTemperature < (float)targetTemperature - 0.8) { //allow the temperature to drop with 0.8 degree below the target temperature
+   }else if (avgTemperature < (float)targetTemperature - 0.6 && heatingState == false) { //allow the temperature to drop with 0.8 degree below the target temperature
      digitalWrite(A0, HIGH); 
      heatingState = true;
    }
@@ -108,22 +118,24 @@ ISR(TIMER1_COMPA_vect) {
       Serial.println(currentHumidity);
     }
     
-   //switch leds: heart beat
-   red = heatingState;
-   green = !green;
-   digitalWrite(A2, red);
-   digitalWrite(A1, green);
+   
+   measure_flag = false;
 }
 
 void loop() {
-    wdt_reset();
-    //Perform a reading, this cannot be done in the ISR because of the use of delays
-    
-    
+  if(measure_flag) {
+    measure();
+  }
+  if(message_flag) {
+    readMessages();
     sendResponses();
-   //check temperature --> put this in an interrupt timer and check every minute?
-   
+  }
+  wdt_reset();  
+  
+ 
 }
+
+
 
 void sendResponses() {
    if(requestTemp) {
@@ -187,7 +199,7 @@ void sendResponses() {
    }
 }
 
-void receivedMessage() {
+void readMessages() {
   if(controller.checkNewMsg()) {
      cli();
      char* ptrbuffer;
@@ -263,8 +275,17 @@ void receivedMessage() {
     }
       
       
-       sei();
-   }
+    sei();
+  }
+  message_flag = false;
+  
+}
+
+void receivedMessage() {
+  message_flag = true;
+  
+  
+   
  }
    
  
